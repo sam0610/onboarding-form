@@ -75,6 +75,7 @@ button:disabled{opacity:.55;cursor:default}
 .ph img{width:100%;height:100%;object-fit:cover;display:block}
 .photo .note{margin:2px 0 10px;max-width:38ch}
 .ai{background:var(--accent-soft)!important;border-color:var(--accent)!important}
+.tag{margin-left:6px;font-size:11px;padding:1px 6px;border-radius:8px;background:var(--field);border:1px solid var(--line);font-weight:400}
 .thumb{min-height:0}.thumb img{height:88px;max-width:100%;object-fit:contain;border:1px solid var(--line);border-radius:6px;margin-top:6px;background:var(--field)}
 input[type=file]{padding:6px 8px;font-size:13px}
 </style>
@@ -87,22 +88,24 @@ input[type=file]{padding:6px 8px;font-size:13px}
 </header>
 <div class="layout">
 <form id="form" autocomplete="off" onsubmit="return false">
-  <fieldset id="ai"><legend>從證件自動填寫</legend>
-    <p class="note">上載身份證和地址證明，由 Gemini 讀取後填入下面的欄位。相片會傳送到 Google 處理，只用來讀取，不會儲存在這個頁面。填入後請對照證件核對。</p>
-    <div class="grid">
+  <fieldset id="ai"><legend>上載文件</legend>
+    <p class="note">一次過上載所有文件。身份證正面和地址證明會傳送到 Google 的 Gemini 讀取並自動填入欄位；員工相片、身份證背面和銀行戶口只用來放進輸出的 PDF，<b>不會</b>傳去 AI。所有相片只留在這個頁面，不會儲存進記錄。</p>
+    <div class="grid" id="docGrid">
+      <div class="f"><label>員工相片</label><div class="row"><button class="small" id="phPick" type="button">選擇相片</button><button class="small" id="phDel" type="button" hidden>移除</button></div><input type="file" id="phFile" accept="image/*" hidden>
+        <div class="ph" style="margin-top:6px"><img id="phImg" alt="員工相片預覽" hidden><span id="phEmpty">未上傳相片</span></div><div class="use">放入 入職文件第 2 頁「相片」格</div></div>
+      <div class="f"><label for="d_idF">身份證（正面）<span class="tag">AI 讀取</span></label><input type="file" id="d_idF" accept="image/*"><div class="thumb" id="t_idF"></div></div>
+      <div class="f"><label for="d_idB">身份證（背面）</label><input type="file" id="d_idB" accept="image/*"><div class="thumb" id="t_idB"></div></div>
+      <div class="f"><label for="d_addr">地址證明（水電煤單、銀行月結單等）<span class="tag">AI 讀取</span></label><input type="file" id="d_addr" accept="image/*"><div class="thumb" id="t_addr"></div></div>
+      <div class="f"><label for="d_bank">銀行戶口（存摺／月結單／卡）</label><input type="file" id="d_bank" accept="image/*"><div class="thumb" id="t_bank"></div></div>
+    </div>
+    <div class="grid" style="margin-top:12px">
       <div class="f"><label for="gKey">Gemini API Key（只存在這部瀏覽器）</label><input type="password" id="gKey" autocomplete="off" placeholder="AIza…"></div>
       <div class="f"><label for="gModel">模型</label><input type="text" id="gModel" value="gemini-3.1-flash-lite"></div>
-      <div class="f"><label for="idFile">身份證（正面）</label><input type="file" id="idFile" accept="image/*"><div class="thumb" id="idThumb"></div></div>
-      <div class="f"><label for="addrFile">地址證明（水電煤單、銀行月結單等）</label><input type="file" id="addrFile" accept="image/*"><div class="thumb" id="addrThumb"></div></div>
     </div>
-    <div class="row" style="margin-top:12px"><button class="primary small" id="aiGo" type="button">讀取並填入</button><button class="small" id="aiUndo" type="button" hidden>復原這次填入</button></div>
+    <div class="row" style="margin-top:12px"><button class="primary small" id="aiGo" type="button">用 AI 讀取身份證及地址並填入</button><button class="small" id="aiUndo" type="button" hidden>復原這次填入</button></div>
     <div class="status" id="aiStatus" role="status"></div><div class="warnbox" id="aiWarn" hidden></div>
   </fieldset>
-  <fieldset><legend>個人資料</legend><div class="grid" id="g-person"></div>
-    <div class="photo"><div class="ph"><img id="phImg" alt="員工相片預覽" hidden><span id="phEmpty">未上傳相片</span></div>
-      <div><label>員工相片</label><p class="note">自動裁成相片框的比例，放進入職文件第 2 頁的「相片」格。</p>
-      <div class="row"><button class="small" id="phPick" type="button">選擇相片</button><button class="small" id="phDel" type="button" hidden>移除</button></div>
-      <input type="file" id="phFile" accept="image/*" hidden><div class="use" style="margin-top:8px">填入 入職文件 <b>×1</b>（第 2 頁）</div></div></div></fieldset>
+  <fieldset><legend>個人資料</legend><div class="grid" id="g-person"></div></fieldset>
   <fieldset><legend>聯絡及居住地址</legend>
     <p class="note">地址分欄輸入。MPF 表按分欄填寫，入職文件的「住址」自動合併成一行。</p>
     <div class="grid" id="g-contact"></div></fieldset>
@@ -125,6 +128,8 @@ input[type=file]{padding:6px 8px;font-size:13px}
       <div class="n"><span id="nN">0</span><small> / <span id="tN"></span> 個欄位</small></div><div class="bar"><i id="bN"></i></div></div>
     <div class="doc"><label class="chk" style="padding:0"><input type="checkbox" id="incMpf" checked><span>MPF 成員登記表格（12 頁）</span></label>
       <div class="n"><span id="nM">0</span><small> / <span id="tM"></span> 個欄位</small></div><div class="bar"><i id="bM"></i></div></div>
+    <div class="doc"><label class="chk" style="padding:0"><input type="checkbox" id="incDocs" checked><span>證件副本（2 頁）</span></label>
+      <div class="use" id="docsInfo" style="margin-top:4px"></div></div>
     <p class="manual">不會自動填寫：簽名、相片、學歷、工作經驗、評核區、培訓和器具勾選。</p>
     <div class="warnbox" id="warn" hidden></div>
   </div>
@@ -275,7 +280,35 @@ const Core = (() => {
     }
     return { bytes: await doc.save(), missing };
   }
-  return { nixon, mpf, fill, derive };
+
+  async function docsPdf(PDFLib, fontkit, fontBytes, docs, name) {
+    const doc = await PDFLib.PDFDocument.create(); doc.registerFontkit(fontkit);
+    const font = await doc.embedFont(fontBytes, { subset: false });
+    const W = 595.28, H = 841.89, M = 40, BW = W - 2 * M, BH = 318;
+    const now = new Date(), stamp = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    async function page(title, items) {
+      if (!items.some(i => i.url)) return;
+      const pg = doc.addPage([W, H]);
+      pg.drawText(title + (name ? '　' + name : ''), { x: M, y: H - M - 6, size: 14, font });
+      pg.drawText(stamp, { x: W - M - 60, y: H - M - 6, size: 9, font });
+      let top = H - M - 30;
+      for (const it of items) {
+        pg.drawText(it.label, { x: M, y: top - 11, size: 10, font });
+        const boxTop = top - 18;
+        pg.drawRectangle({ x: M, y: boxTop - BH, width: BW, height: BH, borderColor: PDFLib.rgb(0.75, 0.75, 0.75), borderWidth: 0.5 });
+        if (it.url) {
+          const img = await doc.embedJpg(Uint8Array.from(atob(it.url.split(',')[1]), c => c.charCodeAt(0)));
+          const k = Math.min((BW - 8) / img.width, (BH - 8) / img.height), w = img.width * k, h = img.height * k;
+          pg.drawImage(img, { x: M + (BW - w) / 2, y: boxTop - BH + (BH - h) / 2, width: w, height: h });
+        } else pg.drawText('（未上載）', { x: M + 8, y: boxTop - 20, size: 10, font, color: PDFLib.rgb(0.55, 0.55, 0.55) });
+        top = boxTop - BH - 16;
+      }
+    }
+    await page('身份證副本', [{ label: '身份證（正面）', url: docs.idF }, { label: '身份證（背面）', url: docs.idB }]);
+    await page('銀行戶口及地址證明', [{ label: '銀行戶口', url: docs.bank }, { label: '地址證明', url: docs.addr }]);
+    return await doc.save();
+  }
+  return { nixon, mpf, fill, derive, docsPdf };
 })();
 
 
@@ -368,6 +401,16 @@ function refresh(){
  $('warn').hidden=!miss.length;$('warn').textContent=miss.length?'尚未輸入：'+miss.join('、'):'';
  save();
 }
+const docs={idF:'',idB:'',addr:'',bank:''};
+async function toJpeg(file){
+ let bmp;try{bmp=await createImageBitmap(file,{imageOrientation:'from-image'})}catch(e){
+  bmp=await new Promise((ok,no)=>{const i=new Image(),u=URL.createObjectURL(file);i.onload=()=>ok(i);i.onerror=no;i.src=u})}
+ const w=bmp.width||bmp.naturalWidth,h=bmp.height||bmp.naturalHeight,k=Math.min(1,1800/Math.max(w,h));
+ const c=document.createElement('canvas');c.width=Math.round(w*k);c.height=Math.round(h*k);const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(bmp,0,0,c.width,c.height);
+ return c.toDataURL('image/jpeg',0.9)}
+function docsInfo(){const n=Object.values(docs).filter(Boolean).length;$('docsInfo').textContent=n?'第1頁：身份證正反面'+(docs.idF||docs.idB?'':'（未上載）')+'；第2頁：銀行戶口及地址'+(docs.bank||docs.addr?'':'（未上載）'):'尚未上載任何證件，不會輸出這份。'}
+for(const k of Object.keys(docs)){$('d_'+k).onchange=async e=>{const f=e.target.files[0],box=$('t_'+k);box.textContent='';docs[k]='';
+ if(f){try{docs[k]=await toJpeg(f);const i=document.createElement('img');i.alt='已選相片';i.src=docs[k];box.appendChild(i)}catch(err){aiStat('讀不到這張相片，請換 JPG 或 PNG。','err')}}docsInfo()}}
 async function getDL(){
  if(window.claude&&claude.use){try{const d=await claude.use('downloads');if(d)return d}catch(e){}}
  return{save:async({filename,data})=>{const blob=data instanceof Blob?data:new Blob([data]);const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),10000);return{status:'saved'}}}}
@@ -376,8 +419,9 @@ async function fonts(){return cache||(cache={mpf:bytes(B64.mpf),nixon:bytes(B64.
 function say(t,c){const s=$('status');s.textContent=t;s.className='status '+(c||'')}
 async function generate(){
  const d=read(),name=(d.surZh||'')+(d.givZh||'')||[d.surEn,d.givEn].filter(Boolean).join(' ')||'員工';
+ const wantDocs=$('incDocs').checked&&Object.values(docs).some(Boolean);
  const inc=[];if($('incNixon').checked)inc.push('nixon');if($('incMpf').checked)inc.push('mpf');
- if(!inc.length){say('請至少選一份文件。','err');return}
+ if(!inc.length&&!wantDocs){say('請至少選一份文件。','err');return}
  const dl=await getDL();
  if(!dl){say('此檢視不能下載檔案，請用瀏覽器開啟這個頁面。','err');return}
  saveCurrent(true);
@@ -391,6 +435,7 @@ async function generate(){
    const r=await Core.fill(PDFLib,fontkit,a[k],map,a.font,ph);
    miss.push(...r.missing);out.push({name:label[k]+'_'+name+'.pdf',bytes:r.bytes});
   }
+  if(wantDocs){out.push({name:'證件副本_'+name+'.pdf',bytes:await Core.docsPdf(PDFLib,fontkit,a.font,docs,name)})}
   let res;
   if(out.length===1)res=await dl.save({filename:out[0].name,data:new Blob([out[0].bytes],{type:'application/pdf'})});
   else{const z=new JSZip();out.forEach(o=>z.file(o.name,o.bytes));const blob=await z.generateAsync({type:'blob'});res=await dl.save({filename:'入職文件_'+name+'.zip',data:blob})}
@@ -419,20 +464,16 @@ let undoList=null;
 try{$('gKey').value=localStorage.getItem('gemini-key')||'';$('gModel').value=localStorage.getItem('gemini-model')||'gemini-3.1-flash-lite'}catch(e){}
 $('gKey').onchange=()=>{try{localStorage.setItem('gemini-key',$('gKey').value.trim())}catch(e){}};
 $('gModel').onchange=()=>{try{localStorage.setItem('gemini-model',$('gModel').value.trim())}catch(e){}};
-async function shrink(f){const bmp=await createImageBitmap(f);const k=Math.min(1,1600/Math.max(bmp.width,bmp.height));const c=document.createElement('canvas');c.width=Math.round(bmp.width*k);c.height=Math.round(bmp.height*k);c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
- return c.toDataURL('image/jpeg',0.9).split(',')[1]}
 async function gemini(prompt,files){
  const key=$('gKey').value.trim(),model=($('gModel').value.trim()||'gemini-3.1-flash-lite');
  if(!key){const e=new Error('nokey');e.code='nokey';throw e}
- const parts=[];for(const f of files)parts.push({inline_data:{mime_type:'image/jpeg',data:await shrink(f)}});parts.push({text:prompt});
+ const parts=[];for(const f of files)parts.push({inline_data:{mime_type:'image/jpeg',data:f.split(',')[1]}});parts.push({text:prompt});
  const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),90000);let res;try{res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},
   signal:ac.signal,body:JSON.stringify({contents:[{parts}],generationConfig:{responseMimeType:'application/json',temperature:0}})})}finally{clearTimeout(tm)}
  if(!res.ok){const e=new Error('http '+res.status);e.code='http'+res.status;try{e.detail=(await res.json()).error.message}catch(_){}throw e}
  const j=await res.json();const tx=j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts&&j.candidates[0].content.parts.map(p=>p.text||'').join('');
  if(!tx){const e=new Error('empty');e.code='empty';throw e}
  try{return JSON.parse(tx.replace(/^```json\s*|```\s*$/g,''))}catch(_){const e=new Error('json');e.code='json';throw e}}
-function thumb(inp,box){const f=inp.files[0];box.textContent='';if(!f)return;const i=document.createElement('img');i.alt='已選相片';i.src=URL.createObjectURL(f);box.appendChild(i)}
-$('idFile').onchange=()=>thumb($('idFile'),$('idThumb'));$('addrFile').onchange=()=>thumb($('addrFile'),$('addrThumb'));
 function hkidOK(s){const m=/^([A-Z]{1,2})(\d{6})\(?([0-9A])\)?$/.exec(String(s).toUpperCase().replace(/\s/g,''));if(!m)return false;const L=m[1],D=m[2],v=c=>c.charCodeAt(0)-55;
  let sum=L.length===1?36*9+v(L)*8:v(L[0])*9+v(L[1])*8;for(let i=0;i<6;i++)sum+=(+D[i])*(7-i);const r=(11-sum%11)%11;return(r===10?'A':String(r))===m[3]}
 const AIKEYS=['surZh','givZh','surEn','givEn','idNo','dob','gender','flat','floor','block','building','street','district','area'];
@@ -456,8 +497,8 @@ function applyAI(r,hasId){
 $('aiUndo').onclick=()=>{if(!undoList)return;for(const u of undoList.reverse()){$(u.id).value=u.prev;$(u.id).classList.remove('ai')}undoList=null;$('aiUndo').hidden=true;$('aiWarn').hidden=true;refresh();aiStat('已復原。')};
 $('aiGo').onclick=async()=>{
  aiStat('已按下，處理中…');
- const idF=$('idFile').files[0],adF=$('addrFile').files[0],files=[idF,adF].filter(Boolean);
- if(!files.length){aiStat('請先選擇身份證或地址證明的相片。','err');return}
+ const idF=docs.idF,adF=docs.addr,files=[idF,adF].filter(Boolean);
+ if(!files.length){aiStat('請先上載身份證（正面）或地址證明的相片。','err');return}
  const desc=[idF&&'香港身份證正面',adF&&'地址證明文件'].filter(Boolean).map((d,i)=>'第 '+(i+1)+' 張圖片：'+d).join('；');
  const prompt=`你是資料輸入助手。${desc}。
 只根據圖片上清楚可見的文字，回傳一個 JSON 物件。讀不到或不確定的欄位就省略，不要猜測，不要翻譯。
@@ -480,12 +521,12 @@ $('aiGo').onclick=async()=>{
   const n=applyAI(r||{},!!idF);aiStat(n?'已填入 '+n+' 項（綠底標示），請對照證件核對。':'讀不到可用資料，請用更清晰的相片。',n?'ok':'err')}
  catch(e){console.error('AI',e);const c=e&&e.code;aiStat(({nokey:'請先輸入 Gemini API Key。',http400:'請求被拒（Key 或模型名稱有問題）：'+(e.detail||''),http403:'API Key 無效或未獲授權。',http404:'找不到這個模型，請檢查模型名稱。',http429:'使用次數已達上限，請稍後再試。',empty:'讀不到資料（可能被安全設定攔截），請換一張相片。',json:'讀不到資料，請用更清晰的相片。'})[c]||(e&&e.name==='AbortError'?'等了 90 秒沒有回應，請再試。':e instanceof TypeError?'連不上 Gemini（網絡，或此頁面環境不容許對外連線）。':'讀取失敗：'+(e&&e.message||e)),'err')}
  finally{$('aiGo').disabled=false}};
-build();
+docsInfo();build();
 let init={};try{init=JSON.parse(localStorage.getItem('onboard-draft')||'{}')}catch(e){}
 if(!init.signDate)init.signDate=today();
 write(init);
 $('form').addEventListener('input',()=>{ event.target.classList&&event.target.classList.remove('ai'); if(event.target.id==='title'){const g={先生:'M',女士:'F',小姐:'F',太太:'F'}[event.target.value];if(g)$('gender').value=g} refresh()});
-$('incNixon').onchange=$('incMpf').onchange=refresh;
+$('incNixon').onchange=$('incMpf').onchange=$('incDocs').onchange=refresh;
 $('tN').textContent=TOTAL.nixon;$('tM').textContent=TOTAL.mpf;
 $('go').onclick=generate;
 $('sample').onclick=()=>{const d={};for(const f of ALL)d[f.id]=f.s;d.signDate=today();d.coSignDate='';d.dis=true;d.taxHK=true;d.spouseSameAddr=false;write(d);refresh();say('已填入範例，按「清除」重新開始。')};
