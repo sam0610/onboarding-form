@@ -70,6 +70,10 @@ button:disabled{opacity:.55;cursor:default}
 .empty{color:var(--muted);font-size:13px;margin:4px 0}
 .small{padding:6px 10px;min-height:34px;font-size:13px}
 .hint{color:var(--muted);font-size:12px;margin:8px 0 0}
+.photo{display:flex;gap:16px;margin-top:16px;align-items:flex-start;flex-wrap:wrap}
+.ph{width:114px;aspect-ratio:114/143;border:1px dashed var(--line);border-radius:6px;display:grid;place-items:center;overflow:hidden;background:var(--field);color:var(--muted);font-size:12px;flex:none}
+.ph img{width:100%;height:100%;object-fit:cover;display:block}
+.photo .note{margin:2px 0 10px;max-width:38ch}
 </style>
 
 </head><body>
@@ -80,7 +84,11 @@ button:disabled{opacity:.55;cursor:default}
 </header>
 <div class="layout">
 <form id="form" autocomplete="off" onsubmit="return false">
-  <fieldset><legend>個人資料</legend><div class="grid" id="g-person"></div></fieldset>
+  <fieldset><legend>個人資料</legend><div class="grid" id="g-person"></div>
+    <div class="photo"><div class="ph"><img id="phImg" alt="員工相片預覽" hidden><span id="phEmpty">未上傳相片</span></div>
+      <div><label>員工相片</label><p class="note">自動裁成相片框的比例，放進入職文件第 2 頁的「相片」格。</p>
+      <div class="row"><button class="small" id="phPick" type="button">選擇相片</button><button class="small" id="phDel" type="button" hidden>移除</button></div>
+      <input type="file" id="phFile" accept="image/*" hidden><div class="use" style="margin-top:8px">填入 入職文件 <b>×1</b>（第 2 頁）</div></div></div></fieldset>
   <fieldset><legend>聯絡及居住地址</legend>
     <p class="note">地址分欄輸入。MPF 表按分欄填寫，入職文件的「住址」自動合併成一行。</p>
     <div class="grid" id="g-contact"></div></fieldset>
@@ -236,7 +244,7 @@ const Core = (() => {
     T(o, 'member_sign_date', dmy(d.signDate)); T(o, 'employer_sign_date', dmy(d.coSignDate));
     return o;
   }
-  async function fill(PDFLib, fontkit, pdfBytes, map, fontBytes) {
+  async function fill(PDFLib, fontkit, pdfBytes, map, fontBytes, photo) {
     const doc = await PDFLib.PDFDocument.load(pdfBytes); doc.registerFontkit(fontkit);
     const font = await doc.embedFont(fontBytes, { subset: false }), form = doc.getForm(), missing = [];
     for (const [k, v] of Object.entries(map)) {
@@ -247,6 +255,10 @@ const Core = (() => {
       } catch (e) { missing.push(k + ': ' + e.message); }
     }
     form.updateFieldAppearances(font);
+    if (photo && photo.bytes) {
+      const img = await doc.embedJpg(photo.bytes), pg = doc.getPage(1);
+      pg.drawImage(img, { x: 447, y: pg.getHeight() - 89 - 143, width: 114, height: 143 });
+    }
     return { bytes: await doc.save(), missing };
   }
   return { nixon, mpf, fill, derive };
@@ -327,8 +339,10 @@ function build(){
  }
  for(const k of BOOL){const [a,b]=usage(k,true);$('use-'+k).innerHTML='填入 '+[a?'入職文件 <b>×'+a+'</b>':'',b?'MPF <b>×'+b+'</b>':''].filter(Boolean).join(' · ')}
 }
-function read(){const d={...DEF};for(const f of ALL){const v=$(f.id).value;if(v!=='')d[f.id]=v}for(const k of BOOL)d[k]=$(k).checked;return d}
-function write(d){for(const f of ALL)$(f.id).value=d[f.id]??'';for(const k of BOOL)$(k).checked=!!d[k]}
+let photo='';
+function setPhoto(u){photo=u||'';const i=$('phImg');i.hidden=!photo;if(photo)i.src=photo;$('phEmpty').hidden=!!photo;$('phDel').hidden=!photo}
+function read(){const d={...DEF};for(const f of ALL){const v=$(f.id).value;if(v!=='')d[f.id]=v}for(const k of BOOL)d[k]=$(k).checked;if(photo)d.photo=photo;return d}
+function write(d){for(const f of ALL)$(f.id).value=d[f.id]??'';for(const k of BOOL)$(k).checked=!!d[k];setPhoto(d.photo)}
 function save(){try{localStorage.setItem('onboard-draft',JSON.stringify(read()))}catch(e){}}
 function refresh(){
  const d=read(),n=Core.nixon(d),m=Core.mpf(d);
@@ -359,7 +373,8 @@ async function generate(){
   const label={nixon:'力新入職文件',mpf:'MPF成員登記表格'};
   for(const k of inc){
    const map=k==='nixon'?Core.nixon(d):Core.mpf(d);
-   const r=await Core.fill(PDFLib,fontkit,a[k],map,a.font);
+   const ph=(k==='nixon'&&d.photo)?{bytes:bytes(d.photo.split(',')[1])}:null;
+   const r=await Core.fill(PDFLib,fontkit,a[k],map,a.font,ph);
    miss.push(...r.missing);out.push({name:label[k]+'_'+name+'.pdf',bytes:r.bytes});
   }
   let res;
@@ -369,6 +384,21 @@ async function generate(){
  }catch(e){say(e&&e.code==='declined'?'已取消儲存。':'產生失敗：'+((e&&e.message)||e),'err')}
  finally{$('go').disabled=false}
 }
+
+const PW=114,PH=143,PX=447,PY=89;
+async function cropPhoto(file){
+ let bmp;try{bmp=await createImageBitmap(file,{imageOrientation:'from-image'})}catch(e){
+  bmp=await new Promise((ok,no)=>{const i=new Image(),u=URL.createObjectURL(file);i.onload=()=>ok(i);i.onerror=no;i.src=u})}
+ const w=bmp.width,h=bmp.height,a=PW/PH;let sw=w,sh=w/a;if(sh>h){sh=h;sw=h*a}
+ const sx=(w-sw)/2,sy=Math.max(0,(h-sh)*0.35);
+ const c=document.createElement('canvas');c.width=456;c.height=572;const x=c.getContext('2d');
+ x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(bmp,sx,sy,sw,sh,0,0,c.width,c.height);
+ return c.toDataURL('image/jpeg',0.88);
+}
+$('phPick').onclick=()=>$('phFile').click();
+$('phFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
+ try{setPhoto(await cropPhoto(f));refresh();say('已加入相片。','ok')}catch(err){say('讀不到這張相片，請換一張（JPG 或 PNG）。','err')}};
+$('phDel').onclick=()=>{setPhoto('');refresh()};
 build();
 let init={};try{init=JSON.parse(localStorage.getItem('onboard-draft')||'{}')}catch(e){}
 if(!init.signDate)init.signDate=today();
