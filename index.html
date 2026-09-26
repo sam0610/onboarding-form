@@ -74,6 +74,9 @@ button:disabled{opacity:.55;cursor:default}
 .ph{width:114px;aspect-ratio:114/143;border:1px dashed var(--line);border-radius:6px;display:grid;place-items:center;overflow:hidden;background:var(--field);color:var(--muted);font-size:12px;flex:none}
 .ph img{width:100%;height:100%;object-fit:cover;display:block}
 .photo .note{margin:2px 0 10px;max-width:38ch}
+.ai{background:var(--accent-soft)!important;border-color:var(--accent)!important}
+.thumb{min-height:0}.thumb img{height:88px;max-width:100%;object-fit:contain;border:1px solid var(--line);border-radius:6px;margin-top:6px;background:var(--field)}
+input[type=file]{padding:6px 8px;font-size:13px}
 </style>
 
 </head><body>
@@ -84,6 +87,17 @@ button:disabled{opacity:.55;cursor:default}
 </header>
 <div class="layout">
 <form id="form" autocomplete="off" onsubmit="return false">
+  <fieldset id="ai"><legend>從證件自動填寫</legend>
+    <p class="note">上載身份證和地址證明，由 Gemini 讀取後填入下面的欄位。相片會傳送到 Google 處理，只用來讀取，不會儲存在這個頁面。填入後請對照證件核對。</p>
+    <div class="grid">
+      <div class="f"><label for="gKey">Gemini API Key（只存在這部瀏覽器）</label><input type="password" id="gKey" autocomplete="off" placeholder="AIza…"></div>
+      <div class="f"><label for="gModel">模型</label><input type="text" id="gModel" value="gemini-3.1-flash-lite"></div>
+      <div class="f"><label for="idFile">身份證（正面）</label><input type="file" id="idFile" accept="image/*"><div class="thumb" id="idThumb"></div></div>
+      <div class="f"><label for="addrFile">地址證明（水電煤單、銀行月結單等）</label><input type="file" id="addrFile" accept="image/*"><div class="thumb" id="addrThumb"></div></div>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="primary small" id="aiGo" type="button">讀取並填入</button><button class="small" id="aiUndo" type="button" hidden>復原這次填入</button></div>
+    <div class="status" id="aiStatus" role="status"></div><div class="warnbox" id="aiWarn" hidden></div>
+  </fieldset>
   <fieldset><legend>個人資料</legend><div class="grid" id="g-person"></div>
     <div class="photo"><div class="ph"><img id="phImg" alt="員工相片預覽" hidden><span id="phEmpty">未上傳相片</span></div>
       <div><label>員工相片</label><p class="note">自動裁成相片框的比例，放進入職文件第 2 頁的「相片」格。</p>
@@ -399,11 +413,77 @@ $('phPick').onclick=()=>$('phFile').click();
 $('phFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
  try{setPhoto(await cropPhoto(f));refresh();say('已加入相片。','ok')}catch(err){say('讀不到這張相片，請換一張（JPG 或 PNG）。','err')}};
 $('phDel').onclick=()=>{setPhoto('');refresh()};
+
+// ---- 證件 AI 讀取（只在 改用 Gemini API）
+let undoList=null;
+try{$('gKey').value=localStorage.getItem('gemini-key')||'';$('gModel').value=localStorage.getItem('gemini-model')||'gemini-3.1-flash-lite'}catch(e){}
+$('gKey').onchange=()=>{try{localStorage.setItem('gemini-key',$('gKey').value.trim())}catch(e){}};
+$('gModel').onchange=()=>{try{localStorage.setItem('gemini-model',$('gModel').value.trim())}catch(e){}};
+async function shrink(f){const bmp=await createImageBitmap(f);const k=Math.min(1,1600/Math.max(bmp.width,bmp.height));const c=document.createElement('canvas');c.width=Math.round(bmp.width*k);c.height=Math.round(bmp.height*k);c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+ return c.toDataURL('image/jpeg',0.9).split(',')[1]}
+async function gemini(prompt,files){
+ const key=$('gKey').value.trim(),model=($('gModel').value.trim()||'gemini-3.1-flash-lite');
+ if(!key){const e=new Error('nokey');e.code='nokey';throw e}
+ const parts=[];for(const f of files)parts.push({inline_data:{mime_type:'image/jpeg',data:await shrink(f)}});parts.push({text:prompt});
+ const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},
+  body:JSON.stringify({contents:[{parts}],generationConfig:{responseMimeType:'application/json',temperature:0}})});
+ if(!res.ok){const e=new Error('http '+res.status);e.code='http'+res.status;try{e.detail=(await res.json()).error.message}catch(_){}throw e}
+ const j=await res.json();const tx=j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts&&j.candidates[0].content.parts.map(p=>p.text||'').join('');
+ if(!tx){const e=new Error('empty');e.code='empty';throw e}
+ try{return JSON.parse(tx.replace(/^```json\s*|```\s*$/g,''))}catch(_){const e=new Error('json');e.code='json';throw e}}
+function thumb(inp,box){const f=inp.files[0];box.textContent='';if(!f)return;const i=document.createElement('img');i.alt='已選相片';i.src=URL.createObjectURL(f);box.appendChild(i)}
+$('idFile').onchange=()=>thumb($('idFile'),$('idThumb'));$('addrFile').onchange=()=>thumb($('addrFile'),$('addrThumb'));
+function hkidOK(s){const m=/^([A-Z]{1,2})(\d{6})\(?([0-9A])\)?$/.exec(String(s).toUpperCase().replace(/\s/g,''));if(!m)return false;const L=m[1],D=m[2],v=c=>c.charCodeAt(0)-55;
+ let sum=L.length===1?36*9+v(L)*8:v(L[0])*9+v(L[1])*8;for(let i=0;i<6;i++)sum+=(+D[i])*(7-i);const r=(11-sum%11)%11;return(r===10?'A':String(r))===m[3]}
+const AIKEYS=['surZh','givZh','surEn','givEn','idNo','dob','gender','flat','floor','block','building','street','district','area'];
+function aiStat(t,c){const s=$('aiStatus');s.textContent=t;s.className='status '+(c||'')}
+function applyAI(r,hasId){
+ const out=[],undo=[],warn=[];const set=(id,v)=>{const el=$(id);undo.push({id,prev:el.value});el.value=v;el.classList.add('ai');out.push(id)};
+ const s=v=>typeof v==='string'?v.trim().slice(0,120):'';
+ for(const k of AIKEYS){let v=s(r[k]);if(!v)continue;
+  if(k==='dob'&&!/^\d{4}-\d{2}-\d{2}$/.test(v))continue;
+  if(k==='gender'&&!['M','F'].includes(v))continue;
+  if(k==='area'&&!['hk','kln','nt'].includes(v))continue;
+  if(k==='surEn')v=v.toUpperCase();
+  if(k==='idNo'){v=v.replace(/\s/g,'').toUpperCase();if(!hkidOK(v))warn.push('身份證號碼的檢查碼不符（'+v+'），請對照證件。')}
+  set(k,v)}
+ if(hasId&&$('idType').value!=='hkid')set('idType','hkid');
+ if(out.includes('gender')&&!$('title').value)set('title',$('gender').value==='M'?'先生':'女士');
+ undoList=undo;$('aiUndo').hidden=!undo.length;
+ const n=(r.notes&&typeof r.notes==='string')?r.notes.trim().slice(0,200):'';if(n)warn.push('Gemini 備註：'+n);
+ $('aiWarn').hidden=!warn.length;$('aiWarn').textContent=warn.join(' ');
+ refresh();return out.length}
+$('aiUndo').onclick=()=>{if(!undoList)return;for(const u of undoList.reverse()){$(u.id).value=u.prev;$(u.id).classList.remove('ai')}undoList=null;$('aiUndo').hidden=true;$('aiWarn').hidden=true;refresh();aiStat('已復原。')};
+$('aiGo').onclick=async()=>{
+ const idF=$('idFile').files[0],adF=$('addrFile').files[0],files=[idF,adF].filter(Boolean);
+ if(!files.length){aiStat('請先選擇身份證或地址證明的相片。','err');return}
+ const desc=[idF&&'香港身份證正面',adF&&'地址證明文件'].filter(Boolean).map((d,i)=>'第 '+(i+1)+' 張圖片：'+d).join('；');
+ const prompt=`你是資料輸入助手。${desc}。
+只根據圖片上清楚可見的文字，回傳一個 JSON 物件。讀不到或不確定的欄位就省略，不要猜測，不要翻譯。
+身份證欄位：
+- surZh：中文姓（如「陳大文」姓為「陳」；複姓如「歐陽」「司徒」姓為兩個字）
+- givZh：中文名
+- surEn：英文姓（身份證英文姓名格式為「CHAN, Tai Man」，逗號前為姓）
+- givEn：英文名（逗號後）
+- idNo：身份證號碼，格式如 A123456(7)，括號內為檢查碼
+- dob：出生日期，格式 YYYY-MM-DD
+- gender：男為 "M"，女為 "F"
+地址證明欄位（保持文件上的原文寫法，中文或英文均可）：
+- flat：室／單位　- floor：樓層（只寫數字或字母）　- block：座（只寫數字或字母）
+- building：大廈或屋苑名稱　- street：街號及街道名稱　- district：區域（如九龍城）
+- area：地區，香港島為 "hk"，九龍為 "kln"，新界為 "nt"
+另外可加 notes：一句話說明不確定或難讀之處。
+只回覆 JSON，例如：{"surZh":"陳","givZh":"大文","idNo":"A123456(3)","notes":""}`;
+ $('aiGo').disabled=true;aiStat('讀取中，約需 10 至 40 秒…');
+ try{const r=await gemini(prompt,files);
+  const n=applyAI(r||{},!!idF);aiStat(n?'已填入 '+n+' 項（綠底標示），請對照證件核對。':'讀不到可用資料，請用更清晰的相片。',n?'ok':'err')}
+ catch(e){const c=e&&e.code;aiStat(({nokey:'請先輸入 Gemini API Key。',http400:'請求被拒（Key 或模型名稱有問題）：'+(e.detail||''),http403:'API Key 無效或未獲授權。',http404:'找不到這個模型，請檢查模型名稱。',http429:'使用次數已達上限，請稍後再試。',empty:'讀不到資料（可能被安全設定攔截），請換一張相片。',json:'讀不到資料，請用更清晰的相片。'})[c]||(e instanceof TypeError?'連不上 Gemini（網絡，或此頁面環境不容許對外連線）。':'讀取失敗：'+(e.message||'')),'err')}
+ finally{$('aiGo').disabled=false}};
 build();
 let init={};try{init=JSON.parse(localStorage.getItem('onboard-draft')||'{}')}catch(e){}
 if(!init.signDate)init.signDate=today();
 write(init);
-$('form').addEventListener('input',()=>{ if(event.target.id==='title'){const g={先生:'M',女士:'F',小姐:'F',太太:'F'}[event.target.value];if(g)$('gender').value=g} refresh()});
+$('form').addEventListener('input',()=>{ event.target.classList&&event.target.classList.remove('ai'); if(event.target.id==='title'){const g={先生:'M',女士:'F',小姐:'F',太太:'F'}[event.target.value];if(g)$('gender').value=g} refresh()});
 $('incNixon').onchange=$('incMpf').onchange=refresh;
 $('tN').textContent=TOTAL.nixon;$('tM').textContent=TOTAL.mpf;
 $('go').onclick=generate;
