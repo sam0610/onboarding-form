@@ -425,8 +425,8 @@ async function gemini(prompt,files){
  const key=$('gKey').value.trim(),model=($('gModel').value.trim()||'gemini-3.1-flash-lite');
  if(!key){const e=new Error('nokey');e.code='nokey';throw e}
  const parts=[];for(const f of files)parts.push({inline_data:{mime_type:'image/jpeg',data:await shrink(f)}});parts.push({text:prompt});
- const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},
-  body:JSON.stringify({contents:[{parts}],generationConfig:{responseMimeType:'application/json',temperature:0}})});
+ const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),90000);let res;try{res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},
+  signal:ac.signal,body:JSON.stringify({contents:[{parts}],generationConfig:{responseMimeType:'application/json',temperature:0}})})}finally{clearTimeout(tm)}
  if(!res.ok){const e=new Error('http '+res.status);e.code='http'+res.status;try{e.detail=(await res.json()).error.message}catch(_){}throw e}
  const j=await res.json();const tx=j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts&&j.candidates[0].content.parts.map(p=>p.text||'').join('');
  if(!tx){const e=new Error('empty');e.code='empty';throw e}
@@ -436,7 +436,7 @@ $('idFile').onchange=()=>thumb($('idFile'),$('idThumb'));$('addrFile').onchange=
 function hkidOK(s){const m=/^([A-Z]{1,2})(\d{6})\(?([0-9A])\)?$/.exec(String(s).toUpperCase().replace(/\s/g,''));if(!m)return false;const L=m[1],D=m[2],v=c=>c.charCodeAt(0)-55;
  let sum=L.length===1?36*9+v(L)*8:v(L[0])*9+v(L[1])*8;for(let i=0;i<6;i++)sum+=(+D[i])*(7-i);const r=(11-sum%11)%11;return(r===10?'A':String(r))===m[3]}
 const AIKEYS=['surZh','givZh','surEn','givEn','idNo','dob','gender','flat','floor','block','building','street','district','area'];
-function aiStat(t,c){const s=$('aiStatus');s.textContent=t;s.className='status '+(c||'')}
+function aiStat(t,c){const s=$('aiStatus');s.textContent=t;s.className='status '+(c||'');try{s.scrollIntoView({block:'nearest'})}catch(e){}}
 function applyAI(r,hasId){
  const out=[],undo=[],warn=[];const set=(id,v)=>{const el=$(id);undo.push({id,prev:el.value});el.value=v;el.classList.add('ai');out.push(id)};
  const s=v=>typeof v==='string'?v.trim().slice(0,120):'';
@@ -455,6 +455,7 @@ function applyAI(r,hasId){
  refresh();return out.length}
 $('aiUndo').onclick=()=>{if(!undoList)return;for(const u of undoList.reverse()){$(u.id).value=u.prev;$(u.id).classList.remove('ai')}undoList=null;$('aiUndo').hidden=true;$('aiWarn').hidden=true;refresh();aiStat('已復原。')};
 $('aiGo').onclick=async()=>{
+ aiStat('已按下，處理中…');
  const idF=$('idFile').files[0],adF=$('addrFile').files[0],files=[idF,adF].filter(Boolean);
  if(!files.length){aiStat('請先選擇身份證或地址證明的相片。','err');return}
  const desc=[idF&&'香港身份證正面',adF&&'地址證明文件'].filter(Boolean).map((d,i)=>'第 '+(i+1)+' 張圖片：'+d).join('；');
@@ -477,7 +478,7 @@ $('aiGo').onclick=async()=>{
  $('aiGo').disabled=true;aiStat('讀取中，約需 10 至 40 秒…');
  try{const r=await gemini(prompt,files);
   const n=applyAI(r||{},!!idF);aiStat(n?'已填入 '+n+' 項（綠底標示），請對照證件核對。':'讀不到可用資料，請用更清晰的相片。',n?'ok':'err')}
- catch(e){const c=e&&e.code;aiStat(({nokey:'請先輸入 Gemini API Key。',http400:'請求被拒（Key 或模型名稱有問題）：'+(e.detail||''),http403:'API Key 無效或未獲授權。',http404:'找不到這個模型，請檢查模型名稱。',http429:'使用次數已達上限，請稍後再試。',empty:'讀不到資料（可能被安全設定攔截），請換一張相片。',json:'讀不到資料，請用更清晰的相片。'})[c]||(e instanceof TypeError?'連不上 Gemini（網絡，或此頁面環境不容許對外連線）。':'讀取失敗：'+(e.message||'')),'err')}
+ catch(e){console.error('AI',e);const c=e&&e.code;aiStat(({nokey:'請先輸入 Gemini API Key。',http400:'請求被拒（Key 或模型名稱有問題）：'+(e.detail||''),http403:'API Key 無效或未獲授權。',http404:'找不到這個模型，請檢查模型名稱。',http429:'使用次數已達上限，請稍後再試。',empty:'讀不到資料（可能被安全設定攔截），請換一張相片。',json:'讀不到資料，請用更清晰的相片。'})[c]||(e&&e.name==='AbortError'?'等了 90 秒沒有回應，請再試。':e instanceof TypeError?'連不上 Gemini（網絡，或此頁面環境不容許對外連線）。':'讀取失敗：'+(e&&e.message||e)),'err')}
  finally{$('aiGo').disabled=false}};
 build();
 let init={};try{init=JSON.parse(localStorage.getItem('onboard-draft')||'{}')}catch(e){}
