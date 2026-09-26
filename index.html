@@ -128,7 +128,7 @@ input[type=file]{padding:6px 8px;font-size:13px}
       <div class="n"><span id="nN">0</span><small> / <span id="tN"></span> 個欄位</small></div><div class="bar"><i id="bN"></i></div></div>
     <div class="doc"><label class="chk" style="padding:0"><input type="checkbox" id="incMpf" checked><span>MPF 成員登記表格（12 頁）</span></label>
       <div class="n"><span id="nM">0</span><small> / <span id="tM"></span> 個欄位</small></div><div class="bar"><i id="bM"></i></div></div>
-    <div class="doc"><label class="chk" style="padding:0"><input type="checkbox" id="incDocs" checked><span>證件副本（2 頁）</span></label>
+    <div class="doc"><label class="chk" style="padding:0"><input type="checkbox" id="incDocs" checked><span>證件副本</span></label>
       <div class="use" id="docsInfo" style="margin-top:4px"></div></div>
     <p class="manual">不會自動填寫：簽名、相片、學歷、工作經驗、評核區、培訓和器具勾選。</p>
     <div class="warnbox" id="warn" hidden></div>
@@ -284,28 +284,38 @@ const Core = (() => {
   async function docsPdf(PDFLib, fontkit, fontBytes, docs, name) {
     const doc = await PDFLib.PDFDocument.create(); doc.registerFontkit(fontkit);
     const font = await doc.embedFont(fontBytes, { subset: false });
-    const W = 595.28, H = 841.89, M = 40, BW = W - 2 * M, BH = 318;
+    const MM = 72 / 25.4, W = 595.28, H = 841.89, M = 40;
+    const CW = 85.60 * MM, CH = 53.98 * MM;               // 香港身份證實體尺寸
     const now = new Date(), stamp = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
-    async function page(title, items) {
-      if (!items.some(i => i.url)) return;
-      const pg = doc.addPage([W, H]);
+    const grey = PDFLib.rgb(0.75, 0.75, 0.75);
+    const jpg = async u => doc.embedJpg(Uint8Array.from(atob(u.split(',')[1]), ch => ch.charCodeAt(0)));
+    function head(pg, title) {
       pg.drawText(title + (name ? '　' + name : ''), { x: M, y: H - M - 6, size: 14, font });
       pg.drawText(stamp, { x: W - M - 60, y: H - M - 6, size: 9, font });
-      let top = H - M - 30;
-      for (const it of items) {
-        pg.drawText(it.label, { x: M, y: top - 11, size: 10, font });
-        const boxTop = top - 18;
-        pg.drawRectangle({ x: M, y: boxTop - BH, width: BW, height: BH, borderColor: PDFLib.rgb(0.75, 0.75, 0.75), borderWidth: 0.5 });
-        if (it.url) {
-          const img = await doc.embedJpg(Uint8Array.from(atob(it.url.split(',')[1]), c => c.charCodeAt(0)));
-          const k = Math.min((BW - 8) / img.width, (BH - 8) / img.height), w = img.width * k, h = img.height * k;
-          pg.drawImage(img, { x: M + (BW - w) / 2, y: boxTop - BH + (BH - h) / 2, width: w, height: h });
-        } else pg.drawText('（未上載）', { x: M + 8, y: boxTop - 20, size: 10, font, color: PDFLib.rgb(0.55, 0.55, 0.55) });
-        top = boxTop - BH - 16;
+    }
+    // 第 1 頁：身份證正反面，實物大小
+    if (docs.idF || docs.idB) {
+      const pg = doc.addPage([W, H]); head(pg, '身份證副本');
+      pg.drawText('按實物大小 85.60 × 53.98 毫米', { x: M, y: H - M - 22, size: 8, font, color: PDFLib.rgb(0.45, 0.45, 0.45) });
+      let top = H - M - 60;
+      for (const [label, url] of [['身份證（正面）', docs.idF], ['身份證（背面）', docs.idB]]) {
+        const x = (W - CW) / 2;
+        pg.drawText(label, { x, y: top + 4, size: 9, font });
+        pg.drawRectangle({ x, y: top - CH, width: CW, height: CH, borderColor: grey, borderWidth: 0.5 });
+        if (url) {
+          const img = await jpg(url), k = Math.min(CW / img.width, CH / img.height), w = img.width * k, h = img.height * k;
+          pg.drawImage(img, { x: x + (CW - w) / 2, y: top - CH + (CH - h) / 2, width: w, height: h });
+        } else pg.drawText('（未上載）', { x: x + 8, y: top - 20, size: 9, font, color: PDFLib.rgb(0.55, 0.55, 0.55) });
+        top -= CH + 60;
       }
     }
-    await page('身份證副本', [{ label: '身份證（正面）', url: docs.idF }, { label: '身份證（背面）', url: docs.idB }]);
-    await page('銀行戶口及地址證明', [{ label: '銀行戶口', url: docs.bank }, { label: '地址證明', url: docs.addr }]);
+    // 第 2、3 頁：銀行戶口、地址證明各一頁
+    for (const [title, url] of [['銀行戶口', docs.bank], ['地址證明', docs.addr]]) {
+      if (!url) continue;
+      const pg = doc.addPage([W, H]); head(pg, title);
+      const img = await jpg(url), bw = W - 2 * M, bh = H - 2 * M - 30, k = Math.min(bw / img.width, bh / img.height), w = img.width * k, h = img.height * k;
+      pg.drawImage(img, { x: (W - w) / 2, y: M + (bh - h) / 2, width: w, height: h });
+    }
     return await doc.save();
   }
   return { nixon, mpf, fill, derive, docsPdf };
@@ -408,7 +418,7 @@ async function toJpeg(file){
  const w=bmp.width||bmp.naturalWidth,h=bmp.height||bmp.naturalHeight,k=Math.min(1,1800/Math.max(w,h));
  const c=document.createElement('canvas');c.width=Math.round(w*k);c.height=Math.round(h*k);const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(bmp,0,0,c.width,c.height);
  return c.toDataURL('image/jpeg',0.9)}
-function docsInfo(){const n=Object.values(docs).filter(Boolean).length;$('docsInfo').textContent=n?'第1頁：身份證正反面'+(docs.idF||docs.idB?'':'（未上載）')+'；第2頁：銀行戶口及地址'+(docs.bank||docs.addr?'':'（未上載）'):'尚未上載任何證件，不會輸出這份。'}
+function docsInfo(){const p=[];if(docs.idF||docs.idB)p.push('身份證（實物大小）');if(docs.bank)p.push('銀行戶口');if(docs.addr)p.push('地址證明');$('docsInfo').textContent=p.length?'每項獨立一頁：'+p.join('、'):'尚未上載任何證件，不會輸出這份。'}
 for(const k of Object.keys(docs)){$('d_'+k).onchange=async e=>{const f=e.target.files[0],box=$('t_'+k);box.textContent='';docs[k]='';
  if(f){try{docs[k]=await toJpeg(f);const i=document.createElement('img');i.alt='已選相片';i.src=docs[k];box.appendChild(i)}catch(err){aiStat('讀不到這張相片，請換 JPG 或 PNG。','err')}}docsInfo()}}
 async function getDL(){
